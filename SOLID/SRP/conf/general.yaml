@@ -1,0 +1,3 @@
+input_path: "data/data.parquet"
+output_path: "data/preprocessed_data.parquet"
+drop_cols: ["address", "nic", "f_name", "l_name"]
