@@ -1,0 +1,1 @@
+drop_cols: ["address", "nic", "f_name", "l_name"]

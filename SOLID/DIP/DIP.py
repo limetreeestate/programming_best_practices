@@ -1,11 +1,13 @@
 import logging
 from datetime import datetime as dt
-from typing import List, Union
+from typing import List, Union, Callable
 
-from pyspark.sql import DataFrame, Column
+from pyspark.sql import DataFrame, Column, Window
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import stddev, mean, col, lit
+from pyspark.sql.functions import stddev, mean, col, lit, asc, row_number, desc
 from pyspark.sql.functions import when
+
+from SOLID.DIP.common.conf import load_conf
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Example")
@@ -112,9 +114,7 @@ class NullValueProcessor(DataFrameProcessor):
         self.replacement = replacement
 
     def process(self, df: DataFrame) -> List[Column]:
-        return [when(col(self.col_name).isNull(), self.replacement)
-                .otherwise(col(self.col_name))
-                .alias(self.col_name + "_filled")]
+        return [when(col(self.col_name).isNull(), self.replacement).otherwise(col(self.col_name))]
 
 
 class ColumnRenameProcessor(DataFrameProcessor):
@@ -142,9 +142,27 @@ class ColumnExclusionProcessor(DataFrameProcessor):
         return [col(c) for c in new_cols]
 
 
+class WindowFunctionProcessor(DataFrameProcessor):
+
+    def __init__(self,
+                 window_func: Callable,
+                 partition_col: str,
+                 order_col: str,
+                 order_method=asc,
+                 new_name: str = "window_col"):
+        self.partition_col = partition_col
+        self.order_col = order_col
+        self.window_func = window_func
+        self.order_method = order_method
+        self.new_name = new_name
+
+    def process(self, df: DataFrame) -> List[Column]:
+        w = Window().partitionBy(self.partition_col).orderBy(self.order_method(self.order_col))
+        return [self.window_func().over(w).alias()]
+
+
 def apply_processing(df: DataFrame,
                      processors: List[DataFrameProcessor]) -> DataFrame:
-
     # Iterate through processors and apply processing
     cols: List[Column] = None
     for processor in processors:
@@ -154,24 +172,30 @@ def apply_processing(df: DataFrame,
 
 
 def main():
-    path = "data/data.parquet"
+    # Read conf values
+    conf: dict = load_conf("SOLID/SRP/conf/general.yaml")
+    input_path: str = conf["input_path"]
+    output_path: str = conf["output_path"]
 
-    log_info(f"Fetching dataset from path: {path}")
-    df = CSVDataFrameReader().read(path)
+    log_info(f"Fetching dataset from path: {input_path}")
+    df = CSVDataFrameReader().read(input_path)
 
     log_info("Processing dataset")
     processors = [
         StandardizerProcessor("age", "std_age"),
         StandardizerProcessor("total_spent", "std_total_spent"),
         NullValueProcessor("gender", -1),
-        NullValueProcessor("age", -1),
+        WindowFunctionProcessor(row_number,
+                                "age",
+                                "total_spend",
+                                desc,
+                                "total_spend_on_age_rank"),
         ColumnRenameProcessor("f_name", "first_name"),
         ColumnRenameProcessor("l_name", "last_name"),
         ColumnExclusionProcessor(["address", "nic", "gender", "f_name", "l_name"])
     ]
     processed_df: DataFrame = apply_processing(df, processors)
 
-    output_path = "data/preprocessed_data.parquet"
     log_info(f"Saving dataset: {output_path}")
-    writer = DeltaDataFrameWriter()
+    writer = DeltaDataFrameWriter
     writer.write(processed_df, output_path)
