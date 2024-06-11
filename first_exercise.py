@@ -5,7 +5,8 @@ logging.basicConfig(level=logging.INFO)
 
 def process(path, path2):
     from pyspark.sql import SparkSession
-    from pyspark.sql.functions import stddev, mean, col
+    from pyspark.sql.functions import col
+    import pyspark.sql.functions as F
     from pyspark.sql.functions import when
 
     s = SparkSession.builder \
@@ -14,20 +15,20 @@ def process(path, path2):
 
     df = s.read.parquet(path)
 
-    stddev = df.select(stddev("age")).first()[0]
-    mean2 = df.select(mean("age")).first()[0]
+    stddev = df.select(F.stddev("age")).first()[0]
+    mean = df.select(F.mean("age")).first()[0]
 
-    df = df.withColumn("standardized_age", (col("age") - mean2) / stddev)
+    df = df.withColumn("standardized_age", (col("age") - mean) / stddev)
 
-    stddev = df.select(stddev("total_spent")).first()[0]
-    mean2 = df.select(mean("total_spent")).first()[0]
+    stddev = df.select(F.stddev("total_spent")).first()[0]
+    mean = df.select(F.mean("total_spent")).first()[0]
 
-    df = df.withColumn("standardized_ts", (col("total_spent") - mean2) / stddev)
+    df = df.withColumn("standardized_ts", (col("total_spent") - mean) / stddev)
 
     df = df.withColumn("filled_feature", when(col("gender").isNull(), -1).otherwise(col("gender")))
 
     df = df.withColumn("filled_feature_age", when(col("age").isNull(), -1).otherwise(col("age")))
-    df = df.withColumn("filled_feature_age", when(col("total_spent").isNull(), -1).otherwise(col("total_spent")))
+    df = df.withColumn("filled_feature_total_spend", when(col("total_spend").isNull(), -1).otherwise(col("total_spend")))
 
     df = df.drop("address", "nic")
 
